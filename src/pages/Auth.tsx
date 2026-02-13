@@ -7,41 +7,54 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useUserProfile } from "@/lib/UserProfileContext";
+import { authAPI } from "@/lib/api";
 
 const Auth = () => {
   const [mode, setMode] = useState<"login" | "signup">("signup");
   const [firstName, setFirstName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const { setUser } = useUserProfile();
+  const { setUser, setToken } = useUserProfile();
 
   const from =
     (location.state as { from?: string } | null)?.from || "/profile";
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoading(true);
+    setError(null);
 
-    // Determine a sensible first name for both signup and login.
-    // For signup we prefer the entered first name. For login (where first name
-    // may be empty) derive the name from the email prefix if available.
-    let trimmedFirstName = firstName.trim();
-    if (!trimmedFirstName) {
-      if (email.includes("@")) {
-        const prefix = email.split("@")[0];
-        // Use the part before @ and capitalize the first letter
-        trimmedFirstName = prefix
-          ? prefix.charAt(0).toUpperCase() + prefix.slice(1)
-          : "First name";
+    try {
+      let response;
+
+      if (mode === "signup") {
+        if (!firstName.trim()) {
+          throw new Error("First name is required");
+        }
+        response = await authAPI.register(firstName, email, password);
       } else {
-        trimmedFirstName = mode === "login" ? "First name" : "Guest";
+        response = await authAPI.login(email, password);
       }
+
+      // Store token and user data
+      setToken(response.token);
+      setUser({
+        id: response.user.id,
+        firstName: response.user.firstName,
+        email: response.user.email,
+      });
+
+      navigate(from, { replace: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Authentication failed";
+      setError(message);
+    } finally {
+      setLoading(false);
     }
-
-    setUser({ firstName: trimmedFirstName, email: email.trim() });
-
-    navigate(from, { replace: true });
   };
 
   return (
@@ -99,6 +112,7 @@ const Auth = () => {
                     onChange={(e) => setFirstName(e.target.value)}
                     placeholder="e.g., Ananya"
                     required={mode === "signup"}
+                    disabled={loading}
                   />
                 </div>
               )}
@@ -113,6 +127,7 @@ const Auth = () => {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
                   required
+                  disabled={loading}
                 />
               </div>
 
@@ -126,15 +141,32 @@ const Auth = () => {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   required
+                  disabled={loading}
                 />
               </div>
 
-              <Button type="submit" className="w-full btn-hero mt-2">
-                {mode === "signup" ? "Create account" : "Continue"}
+              {error && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm">
+                  {error}
+                </div>
+              )}
+
+              <Button
+                type="submit"
+                className="w-full btn-hero mt-2"
+                disabled={loading}
+              >
+                {loading
+                  ? mode === "signup"
+                    ? "Creating account..."
+                    : "Signing in..."
+                  : mode === "signup"
+                    ? "Create account"
+                    : "Continue"}
               </Button>
 
               <p className="text-xs text-muted-foreground text-center mt-2">
-                This is a demo experience – no real authentication yet.
+                Secure authentication with your MongoDB account.
               </p>
             </form>
 

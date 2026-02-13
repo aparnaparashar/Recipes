@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Search, Sparkles, X } from "lucide-react";
@@ -11,9 +11,11 @@ import { TagChip } from "@/components/ui/TagChip";
 import { ProcessingLoader } from "@/components/ui/ProcessingLoader";
 import { regions } from "@/lib/mockData";
 import { useUserProfile } from "@/lib/UserProfileContext";
+import { dashboardAPI, recipeAPI } from "@/lib/api";
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { token, addHistoryEntry } = useUserProfile();
   const [dishName, setDishName] = useState("");
   const [selectedRegion, setSelectedRegion] = useState<string | null>(null);
   const [selectedConstraints, setSelectedConstraints] = useState<string[]>([]);
@@ -23,12 +25,63 @@ const Dashboard = () => {
   const [availableIngredients, setAvailableIngredients] = useState<string[]>([]);
   const [ingredientInput, setIngredientInput] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
-  const { addHistoryEntry } = useUserProfile();
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch dashboard data on mount
+  useEffect(() => {
+    if (!token) {
+      navigate("/auth");
+      return;
+    }
+
+    const loadDashboard = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const data = await dashboardAPI.getDashboard(token);
+        const dashboard = data.dashboard;
+
+        // Populate form with existing data
+        setSelectedConstraints(dashboard.dietaryConstraints || []);
+        setAllergies(dashboard.allergies || []);
+        setAvailableIngredients(dashboard.availableIngredients || []);
+      } catch (err) {
+        console.error("Failed to load dashboard:", err);
+        setError(err instanceof Error ? err.message : "Failed to load dashboard");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadDashboard();
+  }, [token, navigate]);
+
+  const saveDashboard = async () => {
+    if (!token) return;
+
+    try {
+      setIsSaving(true);
+      setError(null);
+      await dashboardAPI.updateDashboard(token, {
+        dietaryConstraints: selectedConstraints,
+        allergies,
+        availableIngredients,
+      });
+    } catch (err) {
+      console.error("Failed to save dashboard:", err);
+      setError(err instanceof Error ? err.message : "Failed to save dashboard");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const addConstraint = () => {
     const value = constraintInput.trim();
     if (value && !selectedConstraints.includes(value)) {
-      setSelectedConstraints((prev) => [...prev, value]);
+      const updatedConstraints = [...selectedConstraints, value];
+      setSelectedConstraints(updatedConstraints);
     }
     setConstraintInput("");
   };
@@ -40,7 +93,8 @@ const Dashboard = () => {
   const addAllergy = () => {
     const value = allergyInput.trim();
     if (value && !allergies.includes(value)) {
-      setAllergies((prev) => [...prev, value]);
+      const updatedAllergies = [...allergies, value];
+      setAllergies(updatedAllergies);
     }
     setAllergyInput("");
   };
@@ -60,20 +114,73 @@ const Dashboard = () => {
     setAvailableIngredients((prev) => prev.filter((i) => i !== ingredient));
   };
 
-  const handleRegenerate = () => {
-    if (!dishName.trim()) return;
-    setIsProcessing(true);
+  const handleRegenerate = async () => {
+    if (!dishName.trim() || !token) return;
+
+    try {
+      setIsSaving(true);
+      setError(null);
+      setIsProcessing(true);
+
+      // Save current preferences first
+      await saveDashboard();
+
+      // Call recipe generation API
+      const recipeResponse = await recipeAPI.generateRecipe(
+        token,
+        dishName.trim(),
+        selectedConstraints,
+        allergies,
+        availableIngredients
+      );
+
+      const generatedRecipe = recipeResponse.recipe;
+      console.log("✓ Recipe generated:", generatedRecipe.title);
+
+      // Save recipe to dashboard history
+      await dashboardAPI.addDishToHistory(
+        token,
+        generatedRecipe.title,
+        generatedRecipe.ingredients.map((ing: { name: string }) => ing.name)
+      );
+
+      // Store recipe in sessionStorage for Recipe page to display
+      sessionStorage.setItem("generatedRecipe", JSON.stringify(generatedRecipe));
+
+      // Add to history
+      addHistoryEntry({
+        dishName: generatedRecipe.title,
+        constraints: selectedConstraints,
+        allergies,
+        regionId: selectedRegion,
+      });
+
+      // Navigate to recipe page
+      navigate("/recipe/generated");
+    } catch (err) {
+      console.error("Failed to generate recipe:", err);
+      setError(err instanceof Error ? err.message : "Failed to generate recipe");
+      setIsProcessing(false);
+      setIsSaving(false);
+    }
   };
 
   const handleProcessingComplete = () => {
-    addHistoryEntry({
-      dishName: dishName.trim(),
-      constraints: selectedConstraints,
-      allergies,
-      regionId: selectedRegion,
-    });
-    navigate("/recipe/vegan-butter-chicken");
+    // Recipe page will load the recipe from sessionStorage
+    // No need to do anything here as we already navigated
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Header />
+        <div className="text-center">
+          <p className="text-muted-foreground">Loading dashboard...</p>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -95,6 +202,16 @@ const Dashboard = () => {
               Tell us what you want to cook, and we'll regenerate it for your needs.
             </p>
           </motion.div>
+
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6"
+            >
+              {error}
+            </motion.div>
+          )}
 
           {/* Dish Input */}
           <motion.div
@@ -272,11 +389,11 @@ const Dashboard = () => {
             <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
               <Button
                 onClick={handleRegenerate}
-                disabled={!dishName.trim()}
+                disabled={!dishName.trim() || isProcessing || isSaving}
                 className="w-full btn-hero text-lg py-7 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Sparkles className="mr-2 h-5 w-5" />
-                Regenerate Recipe
+                {isSaving ? "Saving..." : "Regenerate Recipe"}
               </Button>
             </motion.div>
           </motion.div>

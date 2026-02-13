@@ -1,0 +1,10 @@
+{
+  "models": [
+    {
+      "title": "DeepSeek Local",
+      "provider": "ollama",
+      "model": "deepseek-coder:latest",
+      "apiBase": "http://localhost:11434"
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 
 export interface HistoryEntry {
   id: string;
@@ -10,20 +10,24 @@ export interface HistoryEntry {
 }
 
 export interface UserProfile {
+  id?: string;
   firstName: string;
   email: string;
+  createdAt?: string;
 }
 
 interface UserProfileContextValue {
   user: UserProfile | null;
+  token: string | null;
   history: HistoryEntry[];
   setUser: (user: UserProfile | null) => void;
-  
+  setToken: (token: string | null) => void;
+  logout: () => void;
   addHistoryEntry: (entry: Omit<HistoryEntry, "id" | "createdAt">) => void;
 }
 
 const UserProfileContext = createContext<UserProfileContextValue | undefined>(
-  undefined,
+  undefined
 );
 
 interface UserProfileProviderProps {
@@ -31,11 +35,43 @@ interface UserProfileProviderProps {
 }
 
 export function UserProfileProvider({ children }: UserProfileProviderProps) {
-  const [user, setUser] = useState<UserProfile | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(() => {
+    const stored = localStorage.getItem("authUser");
+    return stored ? JSON.parse(stored) : null;
+  });
+
+  const [token, setToken] = useState<string | null>(
+    () => localStorage.getItem("authToken") || null
+  );
+
   const [history, setHistory] = useState<HistoryEntry[]>([]);
 
+  // Persist user to localStorage
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem("authUser", JSON.stringify(user));
+    } else {
+      localStorage.removeItem("authUser");
+    }
+  }, [user]);
+
+  const handleSetToken = (newToken: string | null) => {
+    setToken(newToken);
+    if (newToken) {
+      localStorage.setItem("authToken", newToken);
+    } else {
+      localStorage.removeItem("authToken");
+    }
+  };
+
+  const logout = () => {
+    setUser(null);
+    handleSetToken(null);
+    localStorage.removeItem("authUser");
+  };
+
   const addHistoryEntry: UserProfileContextValue["addHistoryEntry"] = (
-    entry,
+    entry
   ) => {
     setHistory((prev) => [
       {
@@ -51,8 +87,11 @@ export function UserProfileProvider({ children }: UserProfileProviderProps) {
     <UserProfileContext.Provider
       value={{
         user,
+        token,
         history,
         setUser,
+        setToken: handleSetToken,
+        logout,
         addHistoryEntry,
       }}
     >
@@ -68,4 +107,3 @@ export function useUserProfile() {
   }
   return ctx;
 }
-
