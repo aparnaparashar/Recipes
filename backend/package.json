@@ -17,6 +17,7 @@
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.2.1",
-    "node-fetch": "^2.7.0"
+    "node-fetch": "^2.7.0",
+    "vite_react_shadcn_ts": "file:.."
   }
 }
